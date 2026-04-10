@@ -1,4 +1,5 @@
 module.exports = async function handler(req, res) {
+  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -12,58 +13,75 @@ module.exports = async function handler(req, res) {
       return res.status(405).json({ message: 'Method not allowed' });
     }
 
-    const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+    const body =
+      typeof req.body === 'string'
+        ? JSON.parse(req.body)
+        : (req.body || {});
+
     const { first_name, last_name, email, website } = body;
 
     if (!first_name || !last_name || !email || !website) {
-      return res.status(400).json({ message: 'Missing required fields.' });
+      return res.status(400).json({
+        message: 'Missing required fields. first_name, last_name, email, and website are required.'
+      });
     }
 
     if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).json({ message: 'OPENAI_API_KEY is not configured.' });
+      return res.status(500).json({
+        message: 'OPENAI_API_KEY is not configured in Vercel environment variables.'
+      });
     }
 
     const normalizedWebsite = normalizeWebsiteUrl(website);
-
     const homepage = await fetchHomepageContent(normalizedWebsite);
 
-    const prompt = buildSnapshotPrompt({
-      businessName: extractBusinessName(homepage.title, normalizedWebsite),
-      website: normalizedWebsite,
-      homepageTitle: homepage.title,
-      metaDescription: homepage.metaDescription,
-      headings: homepage.headings,
-      visibleText: homepage.visibleText
-    });
+    const businessName = extractBusinessName(homepage.title, normalizedWebsite);
 
-    const schema = getSnapshotSchema();
+    const openAiPayload = {
+      model: 'gpt-5-mini',
+      input: [
+        {
+          role: 'developer',
+          content: [
+            {
+              type: 'text',
+              text: buildSnapshotPrompt({
+                businessName,
+                website: normalizedWebsite,
+                homepageTitle: homepage.title,
+                metaDescription: homepage.metaDescription,
+                headings: homepage.headings,
+                visibleText: homepage.visibleText
+              })
+            }
+          ]
+        }
+      ],
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'ai_visibility_snapshot',
+          strict: true,
+          schema: getSnapshotSchema()
+        }
+      }
+    };
 
     const openAiResponse = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        model: 'gpt-5',
-        input: prompt,
-        text: {
-          format: {
-            type: 'json_schema',
-            name: 'ai_visibility_snapshot',
-            strict: true,
-            schema
-          }
-        }
-      })
+      body: JSON.stringify(openAiPayload)
     });
 
     const openAiData = await openAiResponse.json();
 
     if (!openAiResponse.ok) {
-      console.error('OpenAI API error:', openAiData);
+      console.error('OpenAI API error:', JSON.stringify(openAiData, null, 2));
       return res.status(500).json({
-        message: 'OpenAI request failed.',
+        message: openAiData?.error?.message || 'OpenAI request failed.',
         details: openAiData
       });
     }
@@ -73,6 +91,7 @@ module.exports = async function handler(req, res) {
       extractOutputText(openAiData);
 
     if (!outputText) {
+      console.error('No output_text returned:', JSON.stringify(openAiData, null, 2));
       return res.status(500).json({
         message: 'No structured output returned from OpenAI.',
         details: openAiData
@@ -94,8 +113,7 @@ module.exports = async function handler(req, res) {
   } catch (error) {
     console.error('Snapshot API error:', error);
     return res.status(500).json({
-      message: 'Internal server error',
-      error: error.message
+      message: error.message || 'Internal server error'
     });
   }
 };
@@ -125,7 +143,7 @@ async function fetchHomepageContent(url) {
   const title = matchTagContent(html, /<title[^>]*>([\s\S]*?)<\/title>/i);
   const metaDescription = matchMetaDescription(html);
   const headings = extractHeadings(html);
-  const visibleText = extractVisibleText(html).slice(0, 12000);
+  const visibleText = extractVisibleText(html).slice(0, 6000);
 
   return {
     title,
@@ -141,11 +159,9 @@ function matchTagContent(html, regex) {
 }
 
 function matchMetaDescription(html) {
-  const match = html.match(
-    /<meta[^>]+name=["']description["'][^>]+content=["']([^"]*?)["'][^>]*>/i
-  ) || html.match(
-    /<meta[^>]+content=["']([^"]*?)["'][^>]+name=["']description["'][^>]*>/i
-  );
+  const match =
+    html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"]*?)["'][^>]*>/i) ||
+    html.match(/<meta[^>]+content=["']([^"]*?)["'][^>]+name=["']description["'][^>]*>/i);
 
   return match ? decodeHtml(match[1]).trim() : '';
 }
@@ -188,6 +204,7 @@ function extractBusinessName(title, website) {
   if (title && title.length < 120) {
     return title.split('|')[0].split('-')[0].trim();
   }
+
   try {
     return new URL(website).hostname.replace('www.', '');
   } catch {
@@ -322,7 +339,7 @@ Meta description:
 ${metaDescription || 'Not available'}
 
 Headings:
-${(headings && headings.length ? headings.join('\n- ') : 'Not available')}
+${headings && headings.length ? headings.map(h => `- ${h}`).join('\n') : 'Not available'}
 
 Visible homepage text:
 ${visibleText || 'Not available'}
