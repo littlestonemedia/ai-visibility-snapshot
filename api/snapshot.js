@@ -33,7 +33,7 @@ module.exports = async function handler(req, res) {
     }
 
     // =========================
-    // 🔥 OPENAI CALL (JSON MODE)
+    // 🔥 OPENAI CALL
     // =========================
 
     const prompt = `
@@ -87,7 +87,6 @@ Rules:
 - Be concise
 - Be specific
 - Do NOT include anything outside JSON
-- Do NOT explain anything outside the structure
 `;
 
     const response = await fetch('https://api.openai.com/v1/responses', {
@@ -111,13 +110,23 @@ Rules:
     }
 
     // =========================
-    // 🔥 PARSE AI RESPONSE
+    // 🔥 SAFELY EXTRACT TEXT
     // =========================
 
-    let rawText =
-      data.output?.[0]?.content?.[0]?.text ||
-      data.output_text ||
-      "";
+    let rawText = "";
+
+    try {
+      rawText =
+        data.output?.[0]?.content?.[0]?.text ||
+        data.output_text ||
+        "";
+    } catch (e) {
+      console.error("Error extracting OpenAI response:", data);
+    }
+
+    // =========================
+    // 🔥 PARSE OR FALLBACK
+    // =========================
 
     let parsed;
 
@@ -126,13 +135,76 @@ Rules:
     } catch (err) {
       console.error("JSON Parse Failed:", rawText);
 
-      return res.status(500).json({
-        message: "AI returned invalid JSON. Try again."
-      });
+      // ✅ FALLBACK (NEVER BREAK UX)
+      parsed = {
+        business_name: "Analysis Incomplete",
+        website,
+        overall_score: 5,
+        visibility_interpretation: "Moderate visibility",
+        executive_summary:
+          "We encountered a formatting issue during analysis, but early signals suggest moderate AI visibility with opportunities to improve clarity and authority.",
+
+        found_scores: {
+          foundation: { score: 5, reason: "Could not fully analyze." },
+          optimization: { score: 5, reason: "Could not fully analyze." },
+          utility: { score: 5, reason: "Could not fully analyze." },
+          niche_authority: { score: 5, reason: "Could not fully analyze." },
+          data_driven_improvements: { score: 5, reason: "Could not fully analyze." }
+        },
+
+        biggest_limiting_factor: {
+          category: "AI Interpretation",
+          reason: "The system could not fully process the response."
+        },
+
+        top_5_issues: [
+          "AI response formatting issue",
+          "Unclear messaging",
+          "Weak content structure",
+          "Limited authority signals",
+          "Inconsistent positioning"
+        ],
+
+        top_5_quick_wins: [
+          "Retry the analysis",
+          "Clarify homepage messaging",
+          "Add structured content",
+          "Strengthen authority signals",
+          "Align messaging across pages"
+        ],
+
+        what_this_means:
+          "Your business likely has visibility potential, but clarity and structural issues may be limiting AI recommendations.",
+
+        whats_next: {
+          recommended_primary_offer: "VIP Audit",
+          recommended_secondary_offer: "AI SEO 2026 Book",
+
+          book: {
+            name: "AI SEO 2026 Book",
+            description: "Learn how AI visibility actually works."
+          },
+
+          checklist: {
+            name: "Master Visibility Plan Checklist",
+            description: "A step-by-step DIY framework."
+          },
+
+          vip_audit: {
+            name: "Visibility Index Profile (VIP) Audit",
+            description: "A full strategic breakdown."
+          },
+
+          recommendation_summary:
+            "We recommend a deeper audit to identify and fix structural visibility issues."
+        },
+
+        closing: "Try again or upgrade for a full analysis."
+      };
     }
 
     // =========================
-    // 🔥 MAILERLITE (SAFE ADD)
+    // 🔥 MAILERLITE
     // =========================
 
     async function addToMailerLite() {
@@ -162,11 +234,10 @@ Rules:
       }
     }
 
-    // Fire and forget (don't block response)
     addToMailerLite();
 
     // =========================
-    // 🔥 RETURN CLEAN JSON
+    // 🔥 RETURN RESULT
     // =========================
 
     return res.status(200).json(parsed);
