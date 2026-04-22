@@ -18,7 +18,7 @@ module.exports = async function handler(req, res) {
         ? JSON.parse(req.body)
         : (req.body || {});
 
-    const { website } = body;
+    const { first_name, last_name, email, website } = body;
 
     if (!website) {
       return res.status(400).json({
@@ -32,7 +32,64 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // 🔥 OpenAI Call
+    // =========================
+    // 🔥 OPENAI CALL (JSON MODE)
+    // =========================
+
+    const prompt = `
+You are an AI Visibility Strategist trained on the FOUND Framework.
+
+Analyze this website: ${website}
+
+Return ONLY valid JSON in this exact structure:
+
+{
+  "business_name": "",
+  "website": "${website}",
+  "overall_score": 0,
+  "visibility_interpretation": "",
+  "executive_summary": "",
+  "found_scores": {
+    "foundation": { "score": 0, "reason": "" },
+    "optimization": { "score": 0, "reason": "" },
+    "utility": { "score": 0, "reason": "" },
+    "niche_authority": { "score": 0, "reason": "" },
+    "data_driven_improvements": { "score": 0, "reason": "" }
+  },
+  "biggest_limiting_factor": {
+    "category": "",
+    "reason": ""
+  },
+  "top_5_issues": [],
+  "top_5_quick_wins": [],
+  "what_this_means": "",
+  "whats_next": {
+    "recommended_primary_offer": "",
+    "recommended_secondary_offer": "",
+    "book": {
+      "name": "AI SEO 2026 Book",
+      "description": "The best starting point for understanding AI visibility."
+    },
+    "checklist": {
+      "name": "Master Visibility Plan Checklist",
+      "description": "A practical DIY framework."
+    },
+    "vip_audit": {
+      "name": "Visibility Index Profile (VIP) Audit",
+      "description": "A full personalized audit."
+    },
+    "recommendation_summary": ""
+  },
+  "closing": ""
+}
+
+Rules:
+- Be concise
+- Be specific
+- Do NOT include anything outside JSON
+- Do NOT explain anything outside the structure
+`;
+
     const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
@@ -41,36 +98,7 @@ module.exports = async function handler(req, res) {
       },
       body: JSON.stringify({
         model: 'gpt-5-mini',
-        input: `
-You are an AI Visibility Strategist.
-
-Analyze this website: ${website}
-
-Give a short, clear AI Visibility Snapshot.
-
-Follow this exact structure:
-
-AI Visibility Score: [1-10]
-
-Executive Summary:
-(1 short paragraph explaining whether AI can understand and recommend this business)
-
-Top 5 Quick Wins:
-- bullet
-- bullet
-- bullet
-- bullet
-- bullet
-
-What’s Next:
-(1–2 sentences recommending next steps, mentioning checklist or audit naturally)
-
-Rules:
-- Be concise
-- Do not mention browsing limitations
-- Do not ramble
-- Be direct and practical
-`
+        input: prompt
       })
     });
 
@@ -82,31 +110,66 @@ Rules:
       });
     }
 
-    // Extract AI text safely
-    let outputText = "No response generated";
+    // =========================
+    // 🔥 PARSE AI RESPONSE
+    // =========================
+
+    let rawText =
+      data.output?.[0]?.content?.[0]?.text ||
+      data.output_text ||
+      "";
+
+    let parsed;
 
     try {
-      outputText =
-        data.output?.[1]?.content?.[0]?.text ||
-        data.output_text ||
-        "No response generated";
-    } catch (e) {
-      outputText = "Error reading AI response";
+      parsed = JSON.parse(rawText);
+    } catch (err) {
+      console.error("JSON Parse Failed:", rawText);
+
+      return res.status(500).json({
+        message: "AI returned invalid JSON. Try again."
+      });
     }
 
-    // Return formatted response to frontend
-    return res.status(200).json({
-      score: 7,
-      summary: outputText,
-      quick_wins: [
-        "Improve clarity",
-        "Add structured content",
-        "Strengthen authority",
-        "Answer customer questions",
-        "Align messaging"
-      ],
-      next_steps: "Use the checklist or upgrade to a full VIP audit for deeper insights."
-    });
+    // =========================
+    // 🔥 MAILERLITE (SAFE ADD)
+    // =========================
+
+    async function addToMailerLite() {
+      if (!email || !process.env.MAILERLITE_API_KEY || !process.env.MAILERLITE_GROUP_ID) return;
+
+      try {
+        await fetch('https://connect.mailerlite.com/api/subscribers', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.MAILERLITE_API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            email,
+            fields: {
+              name: `${first_name || ""} ${last_name || ""}`.trim(),
+              first_name,
+              last_name,
+              website
+            },
+            groups: [process.env.MAILERLITE_GROUP_ID],
+            status: "active"
+          })
+        });
+      } catch (e) {
+        console.error("MailerLite error:", e);
+      }
+    }
+
+    // Fire and forget (don't block response)
+    addToMailerLite();
+
+    // =========================
+    // 🔥 RETURN CLEAN JSON
+    // =========================
+
+    return res.status(200).json(parsed);
 
   } catch (error) {
     console.error('Snapshot API error:', error);
