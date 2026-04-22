@@ -30,7 +30,7 @@ module.exports = async function handler(req, res) {
     }
 
     // =========================
-    // 🔥 FIRECRAWL SCRAPE
+    // FIRECRAWL SCRAPE
     // =========================
 
     let websiteContent = "";
@@ -62,7 +62,7 @@ module.exports = async function handler(req, res) {
     }
 
     // =========================
-    // 🔥 MAILERLITE (SAFE ADD)
+    // MAILERLITE (SAFE ADD)
     // =========================
 
     async function addToMailerLite() {
@@ -95,7 +95,7 @@ module.exports = async function handler(req, res) {
     addToMailerLite();
 
     // =========================
-    // 🔥 FAILURE MODE IF SCRAPE FAILS
+    // FAILURE MODE IF SCRAPE FAILS
     // =========================
 
     if (!scrapeSuccess) {
@@ -154,12 +154,18 @@ module.exports = async function handler(req, res) {
     }
 
     // =========================
-    // 🔥 OPENAI ANALYSIS
+    // OPENAI STRUCTURED OUTPUTS
     // =========================
 
-    const prompt = `
-You are an AI Visibility Strategist trained on the FOUND Framework.
-
+    const messages = [
+      {
+        role: "system",
+        content:
+          "You are an AI Visibility Strategist trained on the FOUND Framework. Be concise, specific, conservative, and professional."
+      },
+      {
+        role: "user",
+        content: `
 Analyze the business using the website content below.
 
 WEBSITE URL:
@@ -168,7 +174,7 @@ ${website}
 WEBSITE CONTENT:
 ${websiteContent}
 
-Score the business using the FOUND Framework:
+Use the FOUND Framework:
 - Foundation
 - Optimization
 - Utility
@@ -184,7 +190,7 @@ Scoring guidance:
 
 Overall score:
 - Average the 5 FOUND scores
-- Round to nearest whole number
+- Round to the nearest whole number
 
 Visibility interpretation:
 1-2 = Invisible to AI
@@ -193,68 +199,147 @@ Visibility interpretation:
 7-8 = Strong visibility
 9-10 = Highly recommendable
 
-Return ONLY valid JSON.
-Do not use markdown.
-Do not add explanations outside the JSON.
+Return the result strictly in the schema provided.
+`
+      }
+    ];
 
-Use this exact structure:
+    const schema = {
+      name: "ai_visibility_snapshot",
+      strict: true,
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          business_name: { type: "string" },
+          website: { type: "string" },
+          overall_score: { type: "number" },
+          visibility_interpretation: { type: "string" },
+          executive_summary: { type: "string" },
+          found_scores: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              foundation: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  score: { type: "number" },
+                  reason: { type: "string" }
+                },
+                required: ["score", "reason"]
+              },
+              optimization: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  score: { type: "number" },
+                  reason: { type: "string" }
+                },
+                required: ["score", "reason"]
+              },
+              utility: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  score: { type: "number" },
+                  reason: { type: "string" }
+                },
+                required: ["score", "reason"]
+              },
+              niche_authority: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  score: { type: "number" },
+                  reason: { type: "string" }
+                },
+                required: ["score", "reason"]
+              },
+              data_driven_improvements: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  score: { type: "number" },
+                  reason: { type: "string" }
+                },
+                required: ["score", "reason"]
+              }
+            },
+            required: [
+              "foundation",
+              "optimization",
+              "utility",
+              "niche_authority",
+              "data_driven_improvements"
+            ]
+          },
+          biggest_limiting_factor: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              category: { type: "string" },
+              reason: { type: "string" }
+            },
+            required: ["category", "reason"]
+          },
+          top_5_issues: {
+            type: "array",
+            items: { type: "string" }
+          },
+          top_5_quick_wins: {
+            type: "array",
+            items: { type: "string" }
+          },
+          what_this_means: { type: "string" }
+        },
+        required: [
+          "business_name",
+          "website",
+          "overall_score",
+          "visibility_interpretation",
+          "executive_summary",
+          "found_scores",
+          "biggest_limiting_factor",
+          "top_5_issues",
+          "top_5_quick_wins",
+          "what_this_means"
+        ]
+      }
+    };
 
-{
-  "business_name": "",
-  "website": "${website}",
-  "overall_score": 0,
-  "visibility_interpretation": "",
-  "executive_summary": "",
-  "found_scores": {
-    "foundation": { "score": 0, "reason": "" },
-    "optimization": { "score": 0, "reason": "" },
-    "utility": { "score": 0, "reason": "" },
-    "niche_authority": { "score": 0, "reason": "" },
-    "data_driven_improvements": { "score": 0, "reason": "" }
-  },
-  "biggest_limiting_factor": {
-    "category": "",
-    "reason": ""
-  },
-  "top_5_issues": [],
-  "top_5_quick_wins": [],
-  "what_this_means": ""
-}
-`;
-
-    const response = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
+    const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
       headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json'
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: 'gpt-5-mini',
-        input: prompt
+        model: "gpt-4o-mini",
+        messages,
+        response_format: {
+          type: "json_schema",
+          json_schema: schema
+        }
       })
     });
 
-    const data = await response.json();
+    const openaiData = await openaiResponse.json();
 
-    if (!response.ok) {
-      console.error("OpenAI API error:", data);
+    if (!openaiResponse.ok) {
+      console.error("OpenAI API error:", openaiData);
       return res.status(500).json({
-        message: data?.error?.message || 'OpenAI request failed'
+        message: openaiData?.error?.message || "OpenAI request failed"
       });
     }
-
-    let rawText =
-      data.output?.[0]?.content?.[0]?.text ||
-      data.output_text ||
-      "";
 
     let parsed;
 
     try {
-      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-      parsed = JSON.parse(jsonMatch ? jsonMatch[0] : rawText);
+      const raw = openaiData?.choices?.[0]?.message?.content || "";
+      parsed = JSON.parse(raw);
     } catch (err) {
-      console.error("JSON parse failed:", rawText);
+      console.error("Structured output parse failed:", openaiData);
 
       return res.status(200).json({
         first_name: first_name || "",
@@ -316,10 +401,10 @@ Use this exact structure:
     });
 
   } catch (error) {
-    console.error('Snapshot API error:', error);
+    console.error("Snapshot API error:", error);
 
     return res.status(500).json({
-      message: error.message || 'Internal server error'
+      message: error.message || "Internal server error"
     });
   }
 };
