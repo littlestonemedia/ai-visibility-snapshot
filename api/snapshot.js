@@ -26,7 +26,7 @@ module.exports = async function handler(req, res) {
     }
 
     // =========================
-    // 🔥 FIRECRAWL SCRAPE
+    // FIRECRAWL SCRAPE
     // =========================
 
     let websiteContent = "";
@@ -59,7 +59,7 @@ module.exports = async function handler(req, res) {
     }
 
     // =========================
-    // 🔥 MAILERLITE
+    // MAILERLITE
     // =========================
 
     async function addToMailerLite() {
@@ -92,7 +92,7 @@ module.exports = async function handler(req, res) {
     addToMailerLite();
 
     // =========================
-    // 🔥 FAILURE MODE
+    // FAILURE MODE
     // =========================
 
     if (!scrapeSuccess) {
@@ -138,13 +138,73 @@ module.exports = async function handler(req, res) {
     }
 
     // =========================
-    // 🔥 FINAL PROMPT
+    // FINAL PROMPT (FULL VERSION)
     // =========================
 
-    const prompt = `<<PASTE YOUR FINAL PROMPT HERE EXACTLY>>`;
+    const prompt = `
+You are an AI Visibility Strategist.
+
+You are NOT an SEO expert.
+You do NOT talk about keywords, rankings, traffic, or SEO tactics.
+
+Your job is to evaluate how well a business can be:
+- understood
+- interpreted
+- trusted
+- recommended
+
+by AI systems like ChatGPT, Gemini, and Perplexity.
+
+Use simple, clear, professional language. Avoid jargon.
+
+---
+
+WEBSITE URL:
+${website}
+
+WEBSITE CONTENT:
+${websiteContent}
+
+---
+
+Evaluate the business using the FOUND Framework:
+
+1. Foundation → Is it clear what the business does?
+2. Optimization → Is the content structured so AI can understand it easily?
+3. Utility → Does the content clearly answer real customer questions?
+4. Niche Authority → Does the business demonstrate clear expertise in a specific area?
+5. Data-Driven Improvements → Is there evidence of improvement, testing, or results?
+
+---
+
+CRITICAL RULES:
+
+- Use plain English. Assume the reader is not technical.
+- Do NOT mention SEO, keywords, rankings, or traffic.
+- Every insight must be based on the actual website content.
+- Be specific. Avoid vague statements.
+- Focus on clarity and understanding.
+
+---
+
+Return ONLY valid JSON with:
+
+- business_name
+- website
+- overall_score
+- visibility_interpretation
+- primary_visibility_insight
+- ai_confidence_level
+- executive_summary
+- found_scores
+- biggest_limiting_factor
+- top_5_issues
+- top_5_quick_wins
+- what_this_means
+`;
 
     // =========================
-    // 🔥 OPENAI STRUCTURED OUTPUT
+    // OPENAI
     // =========================
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -182,7 +242,7 @@ module.exports = async function handler(req, res) {
           "Your website is partially understandable, but the analysis could not be fully completed.",
         ai_confidence_level: "Medium",
         executive_summary:
-          "AI systems can access your content, but full analysis could not be completed. This limits confidence in recommendations. A deeper review is needed.",
+          "AI systems can access your content, but full analysis could not be completed. A deeper review is needed.",
         found_scores: {},
         biggest_limiting_factor: {
           category: "Analysis Limitation",
