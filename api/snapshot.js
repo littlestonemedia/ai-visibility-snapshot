@@ -1,170 +1,210 @@
-const prompt = `
-You are an AI Visibility Strategist.
+module.exports = async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-You are NOT an SEO expert.
-You do NOT talk about keywords, rankings, traffic, or SEO tactics.
+  if (req.method === 'OPTIONS') return res.status(200).end();
 
-Your job is to evaluate how well a business can be:
-- understood
-- interpreted
-- trusted
-- recommended
+  try {
+    if (req.method !== 'POST') {
+      return res.status(405).json({ message: 'Method not allowed' });
+    }
 
-by AI systems like ChatGPT, Gemini, and Perplexity.
+    const body =
+      typeof req.body === 'string'
+        ? JSON.parse(req.body)
+        : (req.body || {});
 
-Use simple, clear, professional language. Avoid jargon.
+    const { first_name, last_name, email, website } = body;
 
----
+    if (!website) {
+      return res.status(400).json({ message: 'Website is required' });
+    }
 
-WEBSITE URL:
-${website}
+    if (!process.env.OPENAI_API_KEY || !process.env.FIRECRAWL_API_KEY) {
+      return res.status(500).json({ message: 'Missing API keys' });
+    }
 
-WEBSITE CONTENT:
-${websiteContent}
+    // =========================
+    // 🔥 FIRECRAWL SCRAPE
+    // =========================
 
----
+    let websiteContent = "";
+    let scrapeSuccess = false;
 
-Evaluate the business using the FOUND Framework:
+    try {
+      const firecrawlResponse = await fetch("https://api.firecrawl.dev/v1/scrape", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.FIRECRAWL_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          url: website,
+          formats: ["markdown"],
+          onlyMainContent: true,
+          waitFor: 2000
+        })
+      });
 
-1. Foundation → Is it clear what the business does?
-2. Optimization → Is the content structured so AI can understand it easily?
-3. Utility → Does the content clearly answer real customer questions?
-4. Niche Authority → Does the business demonstrate clear expertise in a specific area?
-5. Data-Driven Improvements → Is there evidence of improvement, testing, or results?
+      const firecrawlData = await firecrawlResponse.json();
+      websiteContent = (firecrawlData?.data?.markdown || "").slice(0, 12000);
 
----
+      if (websiteContent && websiteContent.length > 500) {
+        scrapeSuccess = true;
+      }
 
-CRITICAL RULES:
+    } catch (err) {
+      console.error("Firecrawl error:", err);
+    }
 
-- Use plain English. Assume the reader is not technical.
-- Do NOT mention SEO, keywords, rankings, or traffic.
-- Every insight must be based on the actual website content.
-- Be specific. Avoid vague statements like "strong content" or "good structure".
-- Focus on clarity, consistency, and how easy the business is to understand.
-- Explain WHY each issue matters.
+    // =========================
+    // 🔥 MAILERLITE
+    // =========================
 
----
+    async function addToMailerLite() {
+      if (!email || !process.env.MAILERLITE_API_KEY || !process.env.MAILERLITE_GROUP_ID) return;
 
-OUTPUT REQUIREMENTS:
+      try {
+        await fetch('https://connect.mailerlite.com/api/subscribers', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.MAILERLITE_API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            email,
+            fields: {
+              name: `${first_name || ""} ${last_name || ""}`.trim(),
+              first_name,
+              last_name,
+              website
+            },
+            groups: [process.env.MAILERLITE_GROUP_ID],
+            status: "active"
+          })
+        });
+      } catch (e) {
+        console.error("MailerLite error:", e);
+      }
+    }
 
-Return ONLY valid JSON using the schema.
+    addToMailerLite();
 
----
+    // =========================
+    // 🔥 FAILURE MODE
+    // =========================
 
-INCLUDE THESE SECTIONS:
+    if (!scrapeSuccess) {
+      return res.status(200).json({
+        first_name,
+        business_name: "Limited Access",
+        website,
+        overall_score: 3,
+        visibility_interpretation: "Poor visibility",
+        primary_visibility_insight:
+          "Your website content could not be reliably accessed, making it difficult for AI systems to understand and recommend your business.",
+        ai_confidence_level: "Low",
+        executive_summary:
+          "AI systems are not able to clearly access your website content. This makes it difficult for them to understand your business. As a result, your likelihood of being recommended is low.",
+        found_scores: {
+          foundation: { score: 3, reason: "Content could not be accessed clearly." },
+          optimization: { score: 3, reason: "Structure could not be evaluated." },
+          utility: { score: 3, reason: "Content could not be analyzed." },
+          niche_authority: { score: 3, reason: "Authority signals not visible." },
+          data_driven_improvements: { score: 2, reason: "No accessible data signals." }
+        },
+        biggest_limiting_factor: {
+          category: "Content Accessibility",
+          reason: "AI systems cannot reliably access your content."
+        },
+        top_5_issues: [
+          "Website content is not easily accessible to AI systems",
+          "Possible rendering or security limitations",
+          "Limited structured text content",
+          "Reduced machine readability",
+          "Low AI confidence in interpretation"
+        ],
+        top_5_quick_wins: [
+          "Ensure key content is visible as plain text",
+          "Reduce reliance on scripts for core messaging",
+          "Add clear service descriptions on homepage",
+          "Improve structured layout of content",
+          "Test accessibility with AI tools"
+        ],
+        what_this_means:
+          "If AI systems cannot access your content, they cannot understand or recommend your business."
+      });
+    }
 
-1. business_name
+    // =========================
+    // 🔥 FINAL PROMPT
+    // =========================
 
-2. website
+    const prompt = `<<PASTE YOUR FINAL PROMPT HERE EXACTLY>>`;
 
-3. overall_score (1–10)
+    // =========================
+    // 🔥 OPENAI STRUCTURED OUTPUT
+    // =========================
 
-4. visibility_interpretation:
-- 1–2 = Invisible to AI
-- 3–4 = Poor visibility
-- 5–6 = Moderate visibility
-- 7–8 = Strong visibility
-- 9–10 = Highly recommendable
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: "You are an AI Visibility Strategist." },
+          { role: "user", content: prompt }
+        ],
+        response_format: { type: "json_object" }
+      })
+    });
 
----
+    const data = await response.json();
 
-5. primary_visibility_insight (VERY IMPORTANT)
+    let parsed;
 
-One clear, high-impact sentence.
+    try {
+      parsed = JSON.parse(data.choices[0].message.content);
+    } catch (err) {
+      console.error("Parse error:", data);
 
-Explain the single most important reason the business is or is not easy for AI to understand and recommend.
+      return res.status(200).json({
+        first_name,
+        business_name: "Analysis Partial",
+        website,
+        overall_score: 5,
+        visibility_interpretation: "Moderate visibility",
+        primary_visibility_insight:
+          "Your website is partially understandable, but the analysis could not be fully completed.",
+        ai_confidence_level: "Medium",
+        executive_summary:
+          "AI systems can access your content, but full analysis could not be completed. This limits confidence in recommendations. A deeper review is needed.",
+        found_scores: {},
+        biggest_limiting_factor: {
+          category: "Analysis Limitation",
+          reason: "Formatting issue during processing."
+        },
+        top_5_issues: [],
+        top_5_quick_wins: [],
+        what_this_means:
+          "Your site likely has moderate visibility, but further analysis is needed."
+      });
+    }
 
-Example:
-"Your website explains what you do, but it does not clearly state your main service in one simple sentence, which makes it harder for AI systems to confidently understand your business."
+    return res.status(200).json({
+      first_name,
+      ...parsed
+    });
 
----
+  } catch (error) {
+    console.error("Snapshot error:", error);
 
-6. ai_confidence_level
-
-Choose ONE:
-- Low
-- Medium
-- High
-
-This reflects how confidently an AI system could understand and recommend the business based on the content.
-
----
-
-7. executive_summary (MAX 3 sentences)
-
-Structure:
-- Sentence 1: What AI understands
-- Sentence 2: What AI struggles with
-- Sentence 3: What that means
-
----
-
-8. found_scores
-
-Each must include:
-- score (1–10)
-- reason (clear explanation in plain English)
-
----
-
-9. biggest_limiting_factor
-
-Use a clear, non-technical label such as:
-- "Clarity of Your Core Service"
-- "Inconsistent Messaging"
-- "Lack of Clear Explanations"
-- "Weak Trust Signals"
-
-Then explain:
-- what the issue is
-- why it matters for AI understanding
-
----
-
-10. top_5_issues
-
-Each issue must:
-- describe a specific problem seen in the content
-- explain why it makes the business harder to understand or recommend
-
-Keep each to 1–2 sentences.
-
----
-
-11. top_5_quick_wins
-
-Each must:
-- be simple (can be done in 30–90 minutes)
-- directly improve clarity or understanding
-- be written in plain, actionable language
-
-Examples:
-- "Add one sentence at the top of your homepage clearly explaining what your business does."
-- "Rewrite your service descriptions using simple, direct language."
-
----
-
-12. what_this_means
-
-Explain:
-- how these issues affect AI recommendation probability
-- why improving clarity will increase visibility
-
-Do NOT mention rankings or traffic.
-
----
-
-SCORING RULES:
-
-1–2 = Very unclear  
-3–4 = Hard to understand  
-5–6 = Moderately clear  
-7–8 = Easy to understand  
-9–10 = Extremely clear and easy to recommend  
-
-Overall score = average of the 5 FOUND scores
-
----
-
-Return ONLY JSON. No explanations outside JSON.
-`;
+    return res.status(500).json({
+      message: error.message || "Internal server error"
+    });
+  }
+};
